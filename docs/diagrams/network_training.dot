@@ -1,0 +1,63 @@
+digraph training {
+  graph [rankdir=TB, bgcolor="#FFFFFF", pad="0.35", nodesep="0.35", ranksep="0.55", splines=polyline, fontname="DejaVu Sans", fontsize=27, fontcolor="#12263A", labelloc=t, label="01  |  TRAIN THE RESNET50 / U-NET\n", compound=true];
+  node [shape=box, style="rounded,filled", fillcolor="#EFF5FC", color="#ADC2D8", penwidth=1.3, fontname="DejaVu Sans", fontsize=12, fontcolor="#172C43", margin="0.20,0.14"];
+  edge [fontname="DejaVu Sans", fontsize=10, color="#28798A", fontcolor="#285565", penwidth=1.7, arrowsize=0.8];
+
+  subgraph cluster_generation {
+    label="1  PREPARE LABELED MAPS  |  optional when reusing data/random_2d";
+    fontsize=15; fontcolor="#466176"; color="#D8E3ED"; style=rounded; margin=20;
+    settings [label="env_configs/random_2d.yml\nMap size, obstacle ranges, clearance,\nand queries per map", fillcolor="#FFF5DE", color="#DFC58A"];
+    astar [label="path_planning_utils/\nAstar_with_clearance.py\nAStar + endpoint sampling functions;\ncompute reference grid paths"];
+    generator [label="generate_random_world_env_2d.py\nDraw rectangle/circle occupancy maps;\nsample endpoints; run A*; save splits", fillcolor="#DCECF5", color="#749DB8"];
+    data [label="data/<dataset>/{train,val,test}/\nenv_imgs/*.png  |  envs.json\nastar_paths/<map>_<query>.txt", fillcolor="#FFF5DE", color="#DFC58A"];
+    {rank=same; settings; astar;}
+    settings -> generator [label="generation parameters"];
+    astar -> generator [label="functions / AStar used here", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+    generator -> data [label="writes images, endpoints, A* paths"];
+  }
+
+  subgraph cluster_inputs {
+    label="2  PREPARE TRAINING EXAMPLES"; fontsize=15; fontcolor="#466176";
+    color="#D8E3ED"; style=rounded; margin=20;
+    preprocessing [label="datasets/grid_map.py\nLoad binary image; build start / goal /\nfree-space channels; pad and normalize"];
+    loader [label="unet/image_dataset.py\nImageDataset: load each map/query;\nturn A* coordinates into a path mask;\naugment training inputs and labels"];
+    data -> loader [label="train + val splits"];
+    preprocessing -> loader [label="preprocessing functions", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  }
+
+  subgraph cluster_architecture {
+    label="3  DEFINE THE NETWORK"; fontsize=15; fontcolor="#466176";
+    color="#D8E3ED"; style=rounded; margin=20;
+    encoder [label="unet/models/\nresnet_encoder.py\nResNet50Encoder: extract\nfeatures at multiple resolutions"];
+    decoder [label="unet/models/\nunet_decoder.py\nUNetDecoder: upsample + combine\nfeatures; output 2 scores per pixel"];
+    model [label="unet/models/unet_model.py\nUNet: connects encoder and decoder;\nforward() maps inputs to pixel logits"];
+    {rank=same; encoder; decoder;}
+    encoder -> model [label="instantiated by UNet", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+    decoder -> model [label="instantiated by UNet", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  }
+
+  loop [label="unet/training.py\nrun_epoch(): forward pass + weighted loss;\nbackpropagation + optimizer.step() in training;\nloss / path IoU only in validation"];
+  config [label="project_config.py\nDefault paths; seeds; CPU/CUDA choice;\nstrict checkpoint loading"];
+  initial [label="INITIAL WEIGHTS\ncheckpoints/icra2024_resnet50_unet.pt\nDefault: initialize from supplied model\n--from-scratch: skip checkpoint loading", fillcolor="#FFF5DE", color="#DFC58A"];
+  trainer [label="train_unet.py  |  MAIN TRAINING PROGRAM\nCreates ImageDataset / DataLoader, UNet and Adam;\ncalls run_epoch() for train and val each epoch;\nsaves model when validation path IoU improves\n\nDefault: decoder updates; encoder frozen\n--train-encoder: update encoder + decoder", fillcolor="#173E5B", color="#173E5B", fontcolor=white, fontsize=14, penwidth=2, margin="0.25,0.20"];
+
+  loader -> trainer [label="batches of input tensors + target masks"];
+  model -> trainer [label="UNet instantiated here", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  loop -> trainer [label="run_epoch() called here", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  config -> trainer [label="runtime + loading helpers", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  initial -> trainer [label="compatible model weights"];
+
+  trained [label="TRAINED NETWORK WEIGHTS\nruns/<training_run>/best_unet.pt\nComplete encoder + decoder state dictionary\nSelected by highest validation path IoU", fillcolor="#E1F3E8", color="#79AA8C", penwidth=2];
+  records [label="RUN RECORDS\nruns/<training_run>/metrics.csv\nruns/<training_run>/config.json\nLoss, IoU, timing and training settings", fillcolor="#FFF5DE", color="#DFC58A"];
+  trainer -> trained [label="torch.save(model.state_dict())"];
+  trainer -> records [label="writes metrics + configuration"];
+  {rank=same; trained; records;}
+
+  evaluation [label="eval_unet.py  |  OPTIONAL TEST EVALUATION\nLoads best_unet.pt and labeled test queries;\nreuses UNet, ImageDataset and run_epoch();\nreports loss / path IoU without weight updates"];
+  trained -> evaluation [label="checkpoint + dataset test split"];
+  finish [label="READY FOR APPLICATION\nPass best_unet.pt to plan.py --checkpoint\nSee chart 02", fillcolor="#E1F3E8", color="#79AA8C"];
+  trained -> finish [label="saved model for inference"];
+  {rank=same; evaluation; finish;}
+  legend [shape=plain, fontsize=11, fontcolor="#50677A", label="READING THE ARROWS\nSolid teal: input / output data or saved weights.  Dashed purple: code contributes to / is used by the receiving file.\nBlue: Python code.  Gold: inputs / records.  Green: trained outputs.\nThe main program orchestrates execution; helper-to-caller arrows show responsibility, not import timing."];
+  evaluation -> legend [style=invis]; finish -> legend [style=invis];
+}

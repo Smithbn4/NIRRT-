@@ -1,0 +1,28 @@
+{
+  "upstream_repository": "https://github.com/tedhuang96/nirrt_star",
+  "upstream_commit": "285dd24",
+  "checkpoint": {
+    "file": "checkpoints/icra2024_resnet50_unet.pt",
+    "original_file": "results/model_training/unet/checkpoints/best_unet.pt",
+    "bytes": 287851681,
+    "sha256": "897316b694376bb66cd153c1407aea6825477a4da2fb78db9eab5307d0676c70"
+  },
+  "dataset": {
+    "root": "data/random_2d",
+    "splits": {
+      "train": {
+        "maps": 1000,
+        "queries": 4000
+      },
+      "val": {
+        "maps": 125,
+        "queries": 500
+      },
+      "test": {
+        "maps": 125,
+        "queries": 500
+      }
+    },
+    "representation": "occupancy images plus A* paths; no point-cloud NPZ"
+  }
+}

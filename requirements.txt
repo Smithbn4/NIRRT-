@@ -1,0 +1,7 @@
+# Original ICRA-compatible stack; use Python 3.9 (tested in pngenv).
+numpy==1.25.0
+torch==2.0.1
+torchvision==0.15.2
+opencv-python==4.8.0.74
+matplotlib==3.7.1
+PyYAML==6.0

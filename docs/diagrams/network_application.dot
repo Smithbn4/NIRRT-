@@ -1,0 +1,48 @@
+digraph application {
+  graph [rankdir=TB, bgcolor="#FFFFFF", pad="0.35", nodesep="0.38", ranksep="0.60", splines=polyline, fontname="DejaVu Sans", fontsize=27, fontcolor="#12263A", labelloc=t, label="02  |  APPLY THE NETWORK AND SOLVE A MAP\n", compound=true];
+  node [shape=box, style="rounded,filled", fillcolor="#EFF5FC", color="#ADC2D8", penwidth=1.3, fontname="DejaVu Sans", fontsize=12, fontcolor="#172C43", margin="0.20,0.14"];
+  edge [fontname="DejaVu Sans", fontsize=10, color="#28798A", fontcolor="#285565", penwidth=1.7, arrowsize=0.8];
+
+  provided [label="START  |  PROVIDED UNSOLVED MAP\nPNG / JPEG occupancy image + start (x,y) + goal (x,y)\nDefault: white = free; black = occupied\nNo A* labels or training required for this query", fillcolor="#FFF5DE", color="#DFC58A"];
+  grid [label="datasets/grid_map.py\nload_binary_map() reads / thresholds image;\nGridMap builds clearance mask, validates endpoints,\nand supplies free samples + edge collision checks;\nother helpers prepare normalized network inputs"];
+  weights [label="TRAINED WEIGHTS  |  choose one\ncheckpoints/icra2024_resnet50_unet.pt\nOR runs/<training_run>/best_unet.pt", fillcolor="#FFF5DE", color="#DFC58A"];
+  provided -> grid [label="image + requested clearance + endpoints"];
+
+  subgraph cluster_network {
+    label="1  RESTORE AND RUN THE TRAINED NETWORK"; fontsize=15; fontcolor="#466176";
+    color="#D8E3ED"; style=rounded; margin=20;
+    encoder [label="unet/models/\nresnet_encoder.py\nResNet50Encoder:\nextract multiscale features"];
+    decoder [label="unet/models/\nunet_decoder.py\nUNetDecoder:\nproduce non-path / path scores"];
+    model [label="unet/models/unet_model.py\nUNet: encoder + decoder architecture;\nforward() computes per-pixel logits"];
+    config [label="project_config.py\nload_model_weights(): restore\ncheckpoint with strict key matching\nAlso provides runtime helpers to plan.py"];
+    wrapper [label="wrapper/unet/unet_wrapper.py\nGNGWrapper: instantiate UNet, load weights, eval mode\nclassify_path_points(): build start / goal / map channels;\npad + normalize; run model; crop output;\nreturn positive coordinates, mask and probabilities", fillcolor="#DCECF5", color="#749DB8", fontsize=13];
+    {rank=same; encoder; decoder;}
+    encoder -> model [label="instantiated by UNet", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+    decoder -> model [label="instantiated by UNet", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+    model -> wrapper [label="UNet instantiated / called here", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+    config -> wrapper [label="weight-loading helper", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  }
+  grid -> wrapper [label="binary map + endpoints; preprocessing helpers"];
+  weights -> wrapper [label="encoder + decoder state dictionary"];
+  guidance [label="NETWORK PRODUCT  |  PREDICTED PATH CORRIDOR\nCandidate pixel coordinates + binary mask + probabilities\nThis is guidance; it may be disconnected", fillcolor="#FFF5DE", color="#DFC58A"];
+  wrapper -> guidance [label="classify_path_points() returns"];
+
+  subgraph cluster_planner {
+    label="2  USE NEURAL GUIDANCE TO SEARCH FOR A COMPLETE PATH"; fontsize=15; fontcolor="#466176";
+    color="#D8E3ED"; style=rounded; margin=20;
+    base [label="path_planning_classes/rrt_base_2d.py\nRRTBase2D: store vertices / parents;\ncompute costs; extract ordered path"];
+    rrt [label="path_planning_classes/rrt_star_2d.py\nRRTStar2D: expand tree; choose parents; rewire;\ncollision-check edges; connect to goal;\nplanning() returns a path or an empty array"];
+    neural [label="path_planning_classes/nrrt_star_gng_2d.py\nNRRTStarGNG2D: calls wrapper for guidance;\nrejects guidance pixels that violate clearance;\nmixes neural and global free-space samples\n(default neural rate: 0.5; empty guidance: global sampling)"];
+    base -> rrt [label="RRTStar2D inherits RRTBase2D", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+    rrt -> neural [label="NRRTStarGNG2D inherits RRTStar2D", style=dashed, color="#8974A4", fontcolor="#715C8C"];
+  }
+  guidance -> neural [label="candidate coordinates; planner keeps valid ones"];
+  grid -> neural [label="clearance / collision checks / free sampling", minlen=2];
+
+  plan [label="plan.py  |  MAIN APPLICATION PROGRAM\nReads CLI options; creates GridMap, GNGWrapper and NRRTStarGNG2D;\ncalls planner.planning(); checks final path; draws and exports results\n\nExample: python plan.py --map examples/map.png\n--start 132 112 --goal 29 12 --device cpu --stop-on-first", fillcolor="#173E5B", color="#173E5B", fontcolor=white, fontsize=14, penwidth=2, margin="0.25,0.20"];
+  neural -> plan [label="planner instantiated here; planning() returns ordered path"];
+  results [label="FINISH  |  runs/planning/<unique_run>/\nplan.png: occupancy map + guidance + resulting path\npath.csv: ordered x,y coordinates\nresult.json: success, path length, timing and settings\nIf no path is found: diagnostic image / JSON and an empty path", fillcolor="#E1F3E8", color="#79AA8C", penwidth=2];
+  plan -> results [label="exports collision-checked path if found"];
+  legend [shape=plain, fontsize=11, fontcolor="#50677A", label="READING THE ARROWS\nSolid teal: data, predictions, weights or results flow to the receiving file.\nDashed purple: code is instantiated / used by the receiver, or a base class contributes through inheritance.\nBlue: Python code.  Gold: inputs / intermediate data.  Green: final outputs.\nplan.py orchestrates the entire process; its box is placed at the export stage to show contributions flowing toward the caller.\nThis chart shows neural guidance enabled. A* and eval_unet.py do not run when solving a provided map."];
+  results -> legend [style=invis];
+}

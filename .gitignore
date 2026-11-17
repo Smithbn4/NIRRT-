@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+runs/
+data/generated_*/
+.env
+.env.*
+!.env.example
+.aws/
+.agents/
+.codex/
+.~lock.*#

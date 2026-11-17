@@ -1,0 +1,7 @@
+{
+  "map": "map.png",
+  "start": [132, 112],
+  "goal": [29, 12],
+  "clearance": 3,
+  "coordinates": "[x, y] in pixels, origin at top-left; white free, black obstacle"
+}
